@@ -579,6 +579,7 @@ void harris_feature(Image_harris *harris, Image_harris *harris_edge, int *img_da
             }
         }
     }
+    printf("count_edge = %d, count_corner = %d\n", count_edge, count_corner);
 }
 
 /*eigen val by jacobi method*/
