@@ -34,6 +34,7 @@ typedef struct Image_harris
 typedef struct edge_corner
 {
   int y,x;
+  int count;
 }edge_corner;
 
 
@@ -334,7 +335,6 @@ Image *lowpass_org(Image *org, int *img_data)
                         y = 0;
                     else if (y > img_data[0] - 1)
                         y = img_data[0] - 1;
-
                     tmp += org->val[y][x];
                 }
             }
@@ -535,16 +535,12 @@ Image_harris *harris_calc(double **g_dx2, double **g_dy2, double **g_dxdy2, doub
     return harris;
 }
 
-void harris_feature(Image_harris *harris, Image_harris *harris_edge, int *img_data)
+void harris_feature(Image_harris *harris, Image_harris *harris_edge, int *img_data, edge_corner *edge, edge_corner *corner)
 {
     int i, j;
     double max, min;
     min = harris->val[0][0];
     max = harris->val[0][0];
-    int NumOfPel = img_data[0] * img_data[1];
-    edge_corner *edge, *corner;
-    edge = (edge_corner *)calloc(NumOfPel, sizeof(edge_corner));
-    corner = (edge_corner *)calloc(NumOfPel, sizeof(edge_corner));
     int count_edge = 0, count_corner = 0;
     for (i = 0; i < img_data[0]; i++)
     {
@@ -561,18 +557,18 @@ void harris_feature(Image_harris *harris, Image_harris *harris_edge, int *img_da
     {
         for (j = 0; j < img_data[1]; j++)
         {
-            if (harris->val[i][j] >= th * max){
+            if (harris->val[i][j] >= th * max){//コーナー領域の場合
                 harris->val[i][j] = 255;
                 harris_edge->val[i][j] = 0;
-                edge[count_edge].y = i;
-                edge[count_edge].x = j;
-                count_edge++;
-            } else if (harris->val[i][j] <= (-1) * th * max){
-                harris_edge->val[i][j] = 255;
-                harris->val[i][j] = 0;
                 corner[count_corner].y = i;
                 corner[count_corner].x = j;
                 count_corner++;
+            } else if (harris->val[i][j] <= (-1) * th * max){//エッジ領域の場合
+                harris_edge->val[i][j] = 255;
+                harris->val[i][j] = 0;
+                edge[count_edge].y = i;
+                edge[count_edge].x = j;
+                count_edge++;
             } else {
                 harris->val[i][j] = 0;
                 harris_edge->val[i][j] = 0;
@@ -580,6 +576,8 @@ void harris_feature(Image_harris *harris, Image_harris *harris_edge, int *img_da
         }
     }
     printf("count_edge = %d, count_corner = %d\n", count_edge, count_corner);
+    edge[0].count = count_edge;
+    corner[0].count = count_corner;
 }
 
 /*eigen val by jacobi method*/
@@ -754,6 +752,30 @@ double **eigenval(double **g_dx2, double **g_dy2, double **g_dxdy, int *img_data
 
 /**************************************************************************/
 
+/******************************************************************************************************
+ *
+ *
+ *
+ *                            file_output_for_coordinate_of_edge_and_corner
+ *
+ *
+ *
+*******************************************************************************************************/
+void file_output(char *filename_e, char *filename_c, edge_corner *edge, edge_corner *corner)
+{
+    FILE *fp_e, *fp_c;
+    fp_e = fopen(filename_e, "wb");
+    fp_c = fopen(filename_c, "wb");
+    int i;
+    for(i = 0; i < edge[0].count; i++){
+        fprintf(fp_e, "%d\t%d\t\n", edge[i].y, edge[i].x);
+    }
+    for(i = 0; i < corner[0].count; i++){
+        fprintf(fp_c, "%d\t%d\t\n", corner[i].y, corner[i].x);
+    }
+    fclose(fp_e);
+    fclose(fp_c);
+}
 
 /******************************************************************************************************
  *
@@ -771,6 +793,9 @@ int main(int argc, char *argv[])
     double **dx, **dy, **dx2, **dy2, **dxdy,
         **g_dx2, **g_dy2, **g_dxdy, **g_dxdy2,
         **g_dx2_plus_g_dy2, **g_dx2_plus_g_dy2_square;
+
+    int NumOfPel;
+    edge_corner *edge, *corner;
 
     int sobel_x[9] = {
         -1, 0, 1,
@@ -798,6 +823,7 @@ int main(int argc, char *argv[])
     img_data[0] = org->height;
     img_data[1] = org->width;
     img_data[2] = org->maxval;
+    NumOfPel = img_data[0] * img_data[1];
 
     Image *org_lowpass = (Image *)calloc(1, sizeof(Image));
     Image_harris *harris = (Image_harris *)calloc(1, sizeof(Image_harris));
@@ -853,10 +879,15 @@ int main(int argc, char *argv[])
     //R = detH - lambda * (TrH)2
     harris = harris_calc(g_dx2, g_dy2, g_dxdy2, g_dx2_plus_g_dy2_square, img_data);
 
+    edge = (edge_corner *)calloc(NumOfPel, sizeof(edge_corner));
+    corner = (edge_corner *)calloc(NumOfPel, sizeof(edge_corner));
+
     //R >= max(R) * th;
     //条件を満たす画素をyuvファイルにて色づけて出力
-    harris_feature(harris, harris_edge, img_data);
+    harris_feature(harris, harris_edge, img_data, edge, corner);
     write_yuv_harris(harris, harris_edge, org, argv[2]);
+
+    file_output("edge_file.txt", "corner_file.txt", edge, corner);
 
     free_image(org);
 
